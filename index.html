@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handwritten Assignment Generator</title>
+    <!-- Load Tailwind CSS for premium styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Google Fonts for default handwriting options -->
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --ink-blue: #0000CD;
+            --ink-black: #1a1a1a;
+            --current-ink: #0000CD;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a, #1e1b4b);
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        /* Glassmorphism Panel Styling */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* A4 Paper Styling (Standardized at 96 DPI for Web) */
+        .a4-container {
+            width: 794px;
+            height: 1123px;
+            background-color: white;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+            margin: 40px auto;
+            transform-origin: top center;
+        }
+
+        /* Plain White Paper (Replaced Ruled Lines) */
+        .white-paper {
+            background-color: white;
+            padding: 64px 80px; /* Margins */
+        }
+
+        /* Text Rendering Layer */
+        #render-text {
+            width: 100%;
+            height: 100%;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            font-size: 22px;
+            outline: none;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Rich Text Editor Styles */
+        .rich-editor {
+            white-space: pre-wrap;
+            min-height: 200px;
+            color: #ffffff; /* Make default text visible against dark background */
+        }
+        
+        .rich-editor h3 {
+            font-size: 26px;
+            font-weight: bold;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            text-decoration: underline;
+            /* Do not force color here, let the font tag handle it, but provide a bright fallback if needed */
+        }
+        
+        #render-text h3 {
+            font-size: 26px;
+            font-weight: bold;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            text-decoration: underline;
+        }
+
+        /* This is the crucial fix: When users apply "Black Pen" (#1a1a1a), we force it to look white ONLY inside the editor */
+        .rich-editor font[color="#1a1a1a"] {
+            color: #ffffff !important; 
+        }
+        /* Make Blue Pen slightly brighter in the editor so it doesn't blend into the dark background */
+        .rich-editor font[color="#0000CD"], .rich-editor font[color="#0000cd"] {
+            color: #60a5fa !important; /* Tailwind blue-400 */
+        }
+
+        /* Diagram & Image Styling */
+        .diagram-container {
+            position: absolute;
+            cursor: move;
+            z-index: 20;
+            border: 2px dashed transparent;
+        }
+
+        .diagram-container:hover {
+            border: 2px dashed rgba(59, 130, 246, 0.5);
+        }
+
+        /* The magic Pencil Sketch Filter */
+        .pencil-sketch {
+            /* Converts to grayscale, boosts contrast for pencil marks, blends with paper */
+            filter: grayscale(100%) contrast(1.5) brightness(1.1) opacity(0.85);
+            mix-blend-mode: multiply;
+            max-width: 400px;
+            pointer-events: none; /* Let drag events pass to container */
+        }
+
+        /* NEW Realistic Pencil Sketch Engine */
+        .sketch-wrapper {
+            position: relative;
+            mix-blend-mode: multiply;
+            opacity: 0.85; /* Graphite isn't pure black */
+            pointer-events: none;
+            width: 100%;
+        }
+        .sketch-base {
+            filter: grayscale(100%) contrast(1.2);
+            width: 100%;
+            display: block;
+        }
+        .sketch-dodge {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            filter: grayscale(100%) invert(100%) blur(4px);
+            mix-blend-mode: color-dodge;
+        }
+
+        .diagram-delete {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ef4444;
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            text-align: center;
+            line-height: 24px;
+            cursor: pointer;
+            display: none;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .diagram-container:hover .diagram-delete {
+            display: block;
+        }
+
+        /* Active Button State Styling */
+        .format-btn.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 8px rgba(59, 130, 246, 0.5); /* Inner shadow for pressed look, outer glow */
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+        /* Print Specific CSS */
+        @media print {
+            body * { visibility: hidden; }
+            .a4-container, .a4-container * { visibility: visible; }
+            .a4-container {
+                position: absolute;
+                left: 0;
+                top: 0;
+                margin: 0;
+                box-shadow: none;
+                transform: scale(1) !important;
+            }
+            .diagram-container { border: none !important; }
+            .diagram-delete { display: none !important; }
+        }
+    </style>
+</head>
+<body class="flex h-screen w-full">
+
+    <!-- Left Sidebar: Controls & Input -->
+    <div class="w-1/3 h-full glass-panel flex flex-col p-6 z-10 shadow-2xl relative">
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">Assignment Generator</h1>
+            <p class="text-sm text-gray-400 mt-1">Convert digital text to printable handwritten A4 sheets.</p>
+        </div>
+
+        <div class="flex-1 overflow-y-auto pr-2 space-y-6">
+            
+            <!-- JPG Font Upload Section -->
+            <div class="bg-white/5 p-4 rounded-xl border border-white/10">
+                <h2 class="text-sm font-semibold text-blue-300 mb-3 uppercase tracking-wider">1. Handwriting Font</h2>
+                <div class="space-y-3">
+                    <!-- Option A: Send JPG to Python -->
+                    <div class="relative">
+                        <input type="file" id="jpg-font-upload" accept=".jpg,.jpeg,.png" class="hidden">
+                        <label for="jpg-font-upload" class="flex items-center justify-center w-full py-2 px-4 border border-dashed border-blue-500/50 rounded-lg text-blue-400 hover:bg-blue-500/10 cursor-pointer transition-colors text-sm text-center shadow-inner">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            Send JPG to Python Backend
+                        </label>
+                    </div>
+                    
+                    <!-- Option B: Apply TTF instantly -->
+                    <div class="relative">
+                        <input type="file" id="ttf-font-upload" accept=".ttf,.otf" class="hidden">
+                        <label for="ttf-font-upload" class="flex items-center justify-center w-full py-2 px-4 border border-solid border-emerald-500/50 bg-emerald-500/10 rounded-lg text-emerald-400 hover:bg-emerald-500/20 cursor-pointer transition-colors text-sm text-center shadow-inner">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Apply Compiled .TTF Font
+                        </label>
+                    </div>
+                </div>
+                <p id="font-status" class="text-xs font-semibold mt-3 text-center hidden transition-all"></p>
+            </div>
+
+            <!-- Rich Text Input (Questions, Answers, Headings) -->
+            <div class="bg-white/5 p-4 rounded-xl border border-white/10 flex-1 flex flex-col min-h-[350px]">
+                <h2 class="text-sm font-semibold text-blue-300 mb-3 uppercase tracking-wider">2. Assignment Content</h2>
+                
+                <!-- Formatting Toolbar -->
+                <div class="flex flex-wrap gap-2 mb-3 bg-black/40 p-2 rounded-lg border border-white/10">
+                    <button type="button" class="format-btn p-1.5 rounded hover:bg-white/20 transition text-sm flex items-center shadow" data-command="foreColor" data-value="#1a1a1a" title="Black Pen (Questions)">
+                        <div class="w-4 h-4 rounded-full bg-[#1a1a1a] border border-gray-500 mr-1"></div> Black
+                    </button>
+                    <button type="button" class="format-btn p-1.5 rounded hover:bg-white/20 transition text-sm flex items-center shadow" data-command="foreColor" data-value="#0000CD" title="Blue Pen (Answers)">
+                        <div class="w-4 h-4 rounded-full bg-[#0000CD] border border-gray-500 mr-1"></div> Blue
+                    </button>
+                    
+                    <div class="w-px bg-white/20 mx-1"></div>
+                    
+                    <button type="button" class="format-btn p-1.5 rounded hover:bg-white/20 transition shadow" data-command="justifyLeft" data-group="align" title="Align Left">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h10M4 18h16"></path></svg>
+                    </button>
+                    <button type="button" class="format-btn p-1.5 rounded hover:bg-white/20 transition shadow" data-command="justifyCenter" data-group="align" title="Align Center">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M7 12h10M4 18h16"></path></svg>
+                    </button>
+                    <button type="button" class="format-btn p-1.5 rounded hover:bg-white/20 transition shadow" data-command="justifyRight" data-group="align" title="Align Right">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M10 12h10M4 18h16"></path></svg>
+                    </button>
+                    
+                    <div class="w-px bg-white/20 mx-1"></div>
+                    
+                    <button type="button" class="format-btn px-2 py-1.5 rounded hover:bg-white/20 transition text-sm font-bold text-white shadow" data-command="toggleHeading" title="Side Heading (Underline)">
+                        H
+                    </button>
+                </div>
+
+                <!-- Content Editable Div -->
+                <div id="digital-text" contenteditable="true" class="rich-editor w-full flex-1 bg-black/40 border border-white/10 rounded-lg p-3 text-white text-sm outline-none focus:border-blue-500 transition-colors overflow-y-auto"></div>
+            </div>
+
+            <!-- Diagram Insertion -->
+            <div class="bg-white/5 p-4 rounded-xl border border-white/10">
+                <h2 class="text-sm font-semibold text-blue-300 mb-3 uppercase tracking-wider">4. Insert Diagram</h2>
+                <p class="text-xs text-gray-400 mb-3">Upload a diagram. It will be converted to a pencil sketch automatically.</p>
+                <input type="file" id="diagram-upload" accept="image/*" class="hidden">
+                <label for="diagram-upload" class="flex items-center justify-center w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-white cursor-pointer transition-colors shadow-lg shadow-blue-900/50">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    Add Pencil Diagram
+                </label>
+            </div>
+        </div>
+
+        <!-- Export Action -->
+        <button onclick="window.print()" class="mt-6 w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 rounded-xl text-white font-bold shadow-lg shadow-emerald-900/50 transition-all transform hover:-translate-y-1">
+            Print / Export to PDF
+        </button>
+    </div>
+
+    <!-- Right Canvas Area: Live A4 Preview -->
+    <div class="w-2/3 h-full bg-[#111827] overflow-auto relative flex justify-center pb-20 pt-10" id="preview-workspace">
+        
+        <!-- Zoom Controls -->
+        <div class="fixed top-6 right-8 bg-white/10 backdrop-blur-md rounded-full p-1 flex space-x-1 border border-white/10 z-50 shadow-xl">
+            <button onclick="setZoom(0.5)" class="px-3 py-1 rounded-full text-xs font-medium text-white hover:bg-white/20 transition">50%</button>
+            <button onclick="setZoom(0.75)" class="px-3 py-1 rounded-full text-xs font-medium text-white hover:bg-white/20 transition">75%</button>
+            <button onclick="setZoom(1)" class="px-3 py-1 rounded-full text-xs font-medium text-white bg-blue-600 transition">100%</button>
+        </div>
+
+        <!-- The Physical A4 Paper -->
+        <div id="a4-paper" class="a4-container white-paper transition-transform duration-300" style="transform: scale(0.75);">
+            <!-- The text layer -->
+            <div id="render-text" style="font-family: 'Caveat', cursive; color: #1a1a1a;"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const digitalText = document.getElementById('digital-text');
+        const renderText = document.getElementById('render-text');
+        const jpgFontUpload = document.getElementById('jpg-font-upload');
+        const ttfUpload = document.getElementById('ttf-font-upload');
+        const fontStatus = document.getElementById('font-status');
+        const diagramUpload = document.getElementById('diagram-upload');
+        const a4Paper = document.getElementById('a4-paper');
+        const formatBtns = document.querySelectorAll('.format-btn');
+
+        // 1. Live Rich Text Rendering
+        digitalText.addEventListener('input', () => {
+            // Mirror HTML directly to support bold, colors, alignments, and headings
+            renderText.innerHTML = digitalText.innerHTML;
+        });
+
+        // 2. Formatting Toolbar Logic
+        formatBtns.forEach(btn => {
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // Prevent button from stealing focus from the editor
+                const command = btn.getAttribute('data-command');
+                const value = btn.getAttribute('data-value');
+                const group = btn.getAttribute('data-group');
+
+                if (command === 'toggleHeading') {
+                    // Logic to toggle H3 heading
+                    // 1. Get current selection
+                    const selection = window.getSelection();
+                    if (!selection.rangeCount) return;
+                    
+                    // 2. Check if currently in an H3
+                    let currentNode = selection.anchorNode;
+                    let isHeading = false;
+                    while (currentNode && currentNode !== digitalText) {
+                        if (currentNode.nodeName === 'H3') {
+                            isHeading = true;
+                            break;
+                        }
+                        currentNode = currentNode.parentNode;
+                    }
+
+                    // 3. Toggle logic
+                    if (isHeading) {
+                        // We are in an H3, so turn it into a standard div (or paragraph)
+                        document.execCommand('formatBlock', false, 'div');
+                        btn.classList.remove('active');
+                    } else {
+                        // We are not in an H3, turn it into an H3
+                        document.execCommand('formatBlock', false, 'H3');
+                        btn.classList.add('active');
+                    }
+
+                } else {
+                    // Standard commands (colors, alignment)
+                    document.execCommand(command, false, value);
+
+                    // Handle visual state for alignment group
+                    if (group === 'align') {
+                        // Remove active class from all alignment buttons
+                        formatBtns.forEach(b => {
+                            if (b.getAttribute('data-group') === 'align') {
+                                b.classList.remove('active');
+                            }
+                        });
+                        // Add active class to clicked button
+                        btn.classList.add('active');
+                    }
+                }
+                
+                // Trigger input event to sync changes to A4 paper
+                digitalText.dispatchEvent(new Event('input'));
+            });
+        });
+
+        // Update button states on keyup or mouseup within the editor to reflect cursor position
+        digitalText.addEventListener('keyup', updateToolbarState);
+        digitalText.addEventListener('mouseup', updateToolbarState);
+
+        function updateToolbarState() {
+            // Check Heading state
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return;
+            
+            let currentNode = selection.anchorNode;
+            let isHeading = false;
+            while (currentNode && currentNode !== digitalText) {
+                if (currentNode.nodeName === 'H3') {
+                    isHeading = true;
+                    break;
+                }
+                currentNode = currentNode.parentNode;
+            }
+
+            const headingBtn = document.querySelector('.format-btn[data-command="toggleHeading"]');
+            if(isHeading) {
+                headingBtn.classList.add('active');
+            } else {
+                headingBtn.classList.remove('active');
+            }
+
+            // Alignment state can also be queried (document.queryCommandState doesn't work perfectly for justify, but we can try)
+            const alignBtns = document.querySelectorAll('.format-btn[data-group="align"]');
+            alignBtns.forEach(btn => btn.classList.remove('active'));
+            if(document.queryCommandState('justifyLeft')) { document.querySelector('.format-btn[data-command="justifyLeft"]').classList.add('active'); }
+            else if(document.queryCommandState('justifyCenter')) { document.querySelector('.format-btn[data-command="justifyCenter"]').classList.add('active'); }
+            else if(document.queryCommandState('justifyRight')) { document.querySelector('.format-btn[data-command="justifyRight"]').classList.add('active'); }
+        }
+
+
+        // 3a. JPG Font Upload (Sends to your local Flask Python Backend)
+        jpgFontUpload.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fontStatus.classList.remove('hidden');
+            fontStatus.innerText = "⏳ Sending to Flask Backend (127.0.0.1:5000)...";
+            fontStatus.className = "text-xs font-semibold mt-3 text-center text-blue-400";
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                // Attempt to send to the Python app.py you ran in VS Code
+                const res = await fetch('http://127.0.0.1:5000/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if(data.error) throw new Error(data.error);
+                
+                fontStatus.innerText = "✅ JPG Processed! Compile it to a .TTF and upload below.";
+                fontStatus.className = "text-xs font-semibold mt-3 text-center text-emerald-400";
+            } catch (err) {
+                fontStatus.innerText = "❌ Backend disconnected. Run 'python app.py' in VS Code first to process JPGs!";
+                fontStatus.className = "text-xs font-semibold mt-3 text-center text-red-400";
+            }
+        });
+
+        // 3b. TTF Font Upload (Instantly applies your actual custom font to the paper)
+        ttfUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            fontStatus.classList.remove('hidden');
+            fontStatus.innerText = "⏳ Loading your custom font...";
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const fontData = event.target.result;
+                // Use FontFace API to load the custom font into the browser
+                const customFont = new FontFace('UserHandwriting', fontData);
+                
+                customFont.load().then((loadedFont) => {
+                    document.fonts.add(loadedFont);
+                    
+                    // Apply your exact handwriting to the rendering layer!
+                    renderText.style.fontFamily = "'UserHandwriting', sans-serif";
+                    digitalText.style.fontFamily = "'UserHandwriting', sans-serif";
+                    
+                    fontStatus.innerText = "✅ Success! Your actual handwriting is applied.";
+                    fontStatus.className = "text-xs font-semibold mt-3 text-center text-emerald-400";
+                }).catch((error) => {
+                    fontStatus.innerText = "❌ Failed to load .ttf file. Ensure it is a valid font.";
+                    fontStatus.className = "text-xs font-semibold mt-3 text-center text-red-400";
+                });
+            };
+            // Read as ArrayBuffer for the FontFace API
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 4. Diagram Insertion & Realistic Pencil Sketch Logic
+        diagramUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                // Create container for diagram
+                const container = document.createElement('div');
+                container.className = 'diagram-container';
+                // Spawn in the middle of the page roughly
+                container.style.left = '200px';
+                container.style.top = '200px';
+                container.style.width = '350px';
+
+                // Create the multi-layered sketch wrapper for maximum realism
+                const wrapper = document.createElement('div');
+                wrapper.className = 'sketch-wrapper';
+
+                // Base Grayscale layer
+                const baseImg = document.createElement('img');
+                baseImg.src = event.target.result;
+                baseImg.className = 'sketch-base';
+
+                // Color-Dodge blurred inversion layer (creates the pencil strokes)
+                const dodgeImg = document.createElement('img');
+                dodgeImg.src = event.target.result;
+                dodgeImg.className = 'sketch-dodge';
+                
+                wrapper.appendChild(baseImg);
+                wrapper.appendChild(dodgeImg);
+
+                // Delete button
+                const deleteBtn = document.createElement('div');
+                deleteBtn.className = 'diagram-delete';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = () => container.remove();
+
+                container.appendChild(wrapper);
+                container.appendChild(deleteBtn);
+                a4Paper.appendChild(container);
+
+                // Make it draggable
+                makeDraggable(container);
+            };
+            reader.readAsDataURL(file);
+            
+            // Reset input so the same file can be uploaded again if needed
+            diagramUpload.value = '';
+        });
+
+        // 6. Diagram Dragging Logic
+        function makeDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            
+            element.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                e.preventDefault();
+                // Get mouse cursor position at startup
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e.preventDefault();
+                // Calculate the new cursor position
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                
+                // Calculate scale factor because A4 container might be zoomed out
+                const scale = getTransformScale(a4Paper);
+
+                // Set the element's new position accounting for scale
+                element.style.top = (element.offsetTop - (pos2 / scale)) + "px";
+                element.style.left = (element.offsetLeft - (pos1 / scale)) + "px";
+            }
+
+            function closeDragElement() {
+                // Stop moving when mouse button is released
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        // Helper to get current zoom level
+        function getTransformScale(el) {
+            const transform = window.getComputedStyle(el).getPropertyValue('transform');
+            if (transform === 'none') return 1;
+            const matrix = transform.match(/^matrix\((.+)\)$/);
+            if (matrix) return parseFloat(matrix[1].split(', ')[0]);
+            return 1;
+        }
+
+        // Workspace Zoom Controls
+        window.setZoom = function(scale) {
+            a4Paper.style.transform = `scale(${scale})`;
+            // Update button UI
+            const buttons = document.querySelectorAll('.fixed.top-6 button');
+            buttons.forEach(btn => {
+                if(btn.innerText.includes(scale * 100)) {
+                    btn.classList.add('bg-blue-600');
+                    btn.classList.remove('hover:bg-white/20');
+                } else {
+                    btn.classList.remove('bg-blue-600');
+                    btn.classList.add('hover:bg-white/20');
+                }
+            });
+        }
+        
+        // Add placeholder HTML demonstrating the new formatting features
+        digitalText.innerHTML = `
+            <h3><font color="#1a1a1a">Q1: Explain the architecture of the project?</font></h3>
+            <div style="text-align: left;"><font color="#0000cd">The architecture consists of a Python OpenCV backend that processes a JPG of handwritten characters. The frontend is built with HTML/CSS and provides a rich text editor.</font></div>
+            <br>
+            <div style="text-align: center;"><font color="#0000cd"><i>(Centered Text Example)</i></font></div>
+            <br>
+            <h3><font color="#1a1a1a">Q2: How are diagrams handled?</font></h3>
+            <div style="text-align: left;"><font color="#0000cd">Diagrams are uploaded and automatically converted to a pencil sketch using CSS filters, simulating graphite on white paper.</font></div>
+        `;
+        
+        // Trigger the input event to render the initial text
+        digitalText.dispatchEvent(new Event('input'));
+    </script>
+</body>
+</html>
